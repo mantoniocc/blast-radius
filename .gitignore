@@ -1,0 +1,5 @@
+node_modules/
+
+# dist/ NO va aquí. Es un artefacto generado, pero DEBE commitearse:
+# el runner no ejecuta el build, solo lee los archivos del tag.
+# Ver docs/design-decisions.md

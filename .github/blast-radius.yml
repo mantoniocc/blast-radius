@@ -1,0 +1,17 @@
+services:
+  api:
+    paths:
+      - services/api
+    depends-on:
+      - shared
+  worker:
+    paths:
+      - services/worker
+    depends-on:
+      - shared
+  notifier:
+    paths:
+      - services/notifier
+  shared:
+    paths:
+      - libs/shared

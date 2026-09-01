@@ -1,0 +1,25 @@
+name: Blast Radius
+description: Calcula que servicios de un monorepo se ven afectados por un cambio, incluyendo dependencias transitivas
+author: mantoniocc
+
+# branding solo aplica al listing de Marketplace (fase 8).
+# Los iconos salen del set de Feather; los colores son un enum cerrado.
+branding:
+  icon: git-merge
+  color: orange
+
+inputs:
+  config-path:
+    description: Ruta al archiv YAML que declara los servicios y sus dependencias
+    required: false
+    default: .github/blast-radius.yml
+
+outputs:
+  services:
+    description: JSON array con los nombres de todos los servicios declarados
+  
+runs:
+  using: node24
+  # Ruta al BUNDLE, no al fuente. El runner ejecuta lo que este
+  # commiteado en este archivo, sin buildear nada.
+  main: dist/index.js

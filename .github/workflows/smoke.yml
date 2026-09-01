@@ -1,0 +1,32 @@
+name: smoke
+
+on:
+    push:
+        paths-ignore:
+            - '**.md'
+            - 'docs/**'
+    workflow_dispatch:
+
+permissions: 
+    contents: read
+
+jobs:
+    smoke:
+        runs-on: ubuntu-24.04
+        steps:
+            # Necesario: la action lee el archivo de configuracion del workspace.
+            - uses: actions/checkout@v7
+
+            - uses: $/
+              id: radius
+            
+            - shell: bash
+              env:
+                SERVICES: ${{steps.radius.outputs.services}}
+              run: |
+                set -euo pipefail
+                echo "services = $SERVICES"
+                # Verificacion real, no solo un echo: si el output no es un
+                # array JSON valido con 4 elementos, el step falla.
+                echo "$SERVICES" | jq -e 'length == 4' > /dev/null
+                echo "OK: 4 servicios detectados"
