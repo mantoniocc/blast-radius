@@ -19,7 +19,6 @@ import { readFile } from 'node:fs/promises';
 import require$$0 from 'process';
 import require$$0$1 from 'buffer';
 
-console.log("Hello")
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
