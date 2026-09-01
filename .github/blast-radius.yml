@@ -3,12 +3,12 @@ services:
     paths:
       - services/api
     depends-on:
-      - shared
+      - sharedd
   worker:
     paths:
       - services/worker
     depends-on:
-      - shared
+      - sharedd
   notifier:
     paths:
       - services/notifier
