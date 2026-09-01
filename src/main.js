@@ -8,7 +8,7 @@ export async function run() {
     core.info(`Cargando configuracion desde ${configPath}`)
     const services = await loadConfig(configPath)
 
-    core.info(`Servicios declarados: ${services.size}`)
+    core.info(`SERVICIOS ENCONTRADOS: ${services.size}`)
     for (const [name, { paths, dependsOn }] of services) {
       // core.debug solo aparece si ACTIONS_STEP_DEBUG esta activo.
       // Detalle util para diagnosticar, ruido en una corrida normal.
