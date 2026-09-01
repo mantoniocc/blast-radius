@@ -3,16 +3,15 @@ services:
     paths:
       - services/api
     depends-on:
-      - sharedd
+      - shared
   worker:
     paths:
       - services/worker
     depends-on:
-      - sharedd
+      - shared
   notifier:
     paths:
       - services/notifier
   shared:
     paths:
       - libs/shared
-  esto: [no cierra
