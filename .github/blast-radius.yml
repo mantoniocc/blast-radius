@@ -15,3 +15,5 @@ services:
   shared:
     paths:
       - libs/shared
+    depends-on:
+      - api
