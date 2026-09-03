@@ -1,8 +1,8 @@
 import * as os from 'os';
-import os__default from 'os';
+import os__default, { EOL } from 'os';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import { promises } from 'fs';
+import { promises, constants as constants$5 } from 'fs';
 import 'path';
 import http from 'http';
 import https from 'https';
@@ -90,6 +90,9 @@ function toCommandProperties(annotationProperties) {
 function issueCommand(command, properties, message) {
     const cmd = new Command(command, properties, message);
     process.stdout.write(cmd.toString() + os.EOL);
+}
+function issue(name, message = '') {
+    issueCommand(name, {}, message);
 }
 const CMD_STRING = '::';
 class Command {
@@ -28306,7 +28309,7 @@ var MediaTypes;
     });
 };
 
-(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -28316,6 +28319,268 @@ var MediaTypes;
     });
 };
 const { access, appendFile, writeFile } = promises;
+const SUMMARY_ENV_VAR = 'GITHUB_STEP_SUMMARY';
+class Summary {
+    constructor() {
+        this._buffer = '';
+    }
+    /**
+     * Finds the summary file path from the environment, rejects if env var is not found or file does not exist
+     * Also checks r/w permissions.
+     *
+     * @returns step summary file path
+     */
+    filePath() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this._filePath) {
+                return this._filePath;
+            }
+            const pathFromEnv = process.env[SUMMARY_ENV_VAR];
+            if (!pathFromEnv) {
+                throw new Error(`Unable to find environment variable for $${SUMMARY_ENV_VAR}. Check if your runtime environment supports job summaries.`);
+            }
+            try {
+                yield access(pathFromEnv, constants$5.R_OK | constants$5.W_OK);
+            }
+            catch (_a) {
+                throw new Error(`Unable to access summary file: '${pathFromEnv}'. Check if the file has correct read/write permissions.`);
+            }
+            this._filePath = pathFromEnv;
+            return this._filePath;
+        });
+    }
+    /**
+     * Wraps content in an HTML tag, adding any HTML attributes
+     *
+     * @param {string} tag HTML tag to wrap
+     * @param {string | null} content content within the tag
+     * @param {[attribute: string]: string} attrs key-value list of HTML attributes to add
+     *
+     * @returns {string} content wrapped in HTML element
+     */
+    wrap(tag, content, attrs = {}) {
+        const htmlAttrs = Object.entries(attrs)
+            .map(([key, value]) => ` ${key}="${value}"`)
+            .join('');
+        if (!content) {
+            return `<${tag}${htmlAttrs}>`;
+        }
+        return `<${tag}${htmlAttrs}>${content}</${tag}>`;
+    }
+    /**
+     * Writes text in the buffer to the summary buffer file and empties buffer. Will append by default.
+     *
+     * @param {SummaryWriteOptions} [options] (optional) options for write operation
+     *
+     * @returns {Promise<Summary>} summary instance
+     */
+    write(options) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const overwrite = !!(options === null || options === void 0 ? void 0 : options.overwrite);
+            const filePath = yield this.filePath();
+            const writeFunc = overwrite ? writeFile : appendFile;
+            yield writeFunc(filePath, this._buffer, { encoding: 'utf8' });
+            return this.emptyBuffer();
+        });
+    }
+    /**
+     * Clears the summary buffer and wipes the summary file
+     *
+     * @returns {Summary} summary instance
+     */
+    clear() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return this.emptyBuffer().write({ overwrite: true });
+        });
+    }
+    /**
+     * Returns the current summary buffer as a string
+     *
+     * @returns {string} string of summary buffer
+     */
+    stringify() {
+        return this._buffer;
+    }
+    /**
+     * If the summary buffer is empty
+     *
+     * @returns {boolen} true if the buffer is empty
+     */
+    isEmptyBuffer() {
+        return this._buffer.length === 0;
+    }
+    /**
+     * Resets the summary buffer without writing to summary file
+     *
+     * @returns {Summary} summary instance
+     */
+    emptyBuffer() {
+        this._buffer = '';
+        return this;
+    }
+    /**
+     * Adds raw text to the summary buffer
+     *
+     * @param {string} text content to add
+     * @param {boolean} [addEOL=false] (optional) append an EOL to the raw text (default: false)
+     *
+     * @returns {Summary} summary instance
+     */
+    addRaw(text, addEOL = false) {
+        this._buffer += text;
+        return addEOL ? this.addEOL() : this;
+    }
+    /**
+     * Adds the operating system-specific end-of-line marker to the buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addEOL() {
+        return this.addRaw(EOL);
+    }
+    /**
+     * Adds an HTML codeblock to the summary buffer
+     *
+     * @param {string} code content to render within fenced code block
+     * @param {string} lang (optional) language to syntax highlight code
+     *
+     * @returns {Summary} summary instance
+     */
+    addCodeBlock(code, lang) {
+        const attrs = Object.assign({}, (lang && { lang }));
+        const element = this.wrap('pre', this.wrap('code', code), attrs);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML list to the summary buffer
+     *
+     * @param {string[]} items list of items to render
+     * @param {boolean} [ordered=false] (optional) if the rendered list should be ordered or not (default: false)
+     *
+     * @returns {Summary} summary instance
+     */
+    addList(items, ordered = false) {
+        const tag = ordered ? 'ol' : 'ul';
+        const listItems = items.map(item => this.wrap('li', item)).join('');
+        const element = this.wrap(tag, listItems);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML table to the summary buffer
+     *
+     * @param {SummaryTableCell[]} rows table rows
+     *
+     * @returns {Summary} summary instance
+     */
+    addTable(rows) {
+        const tableBody = rows
+            .map(row => {
+            const cells = row
+                .map(cell => {
+                if (typeof cell === 'string') {
+                    return this.wrap('td', cell);
+                }
+                const { header, data, colspan, rowspan } = cell;
+                const tag = header ? 'th' : 'td';
+                const attrs = Object.assign(Object.assign({}, (colspan && { colspan })), (rowspan && { rowspan }));
+                return this.wrap(tag, data, attrs);
+            })
+                .join('');
+            return this.wrap('tr', cells);
+        })
+            .join('');
+        const element = this.wrap('table', tableBody);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds a collapsable HTML details element to the summary buffer
+     *
+     * @param {string} label text for the closed state
+     * @param {string} content collapsable content
+     *
+     * @returns {Summary} summary instance
+     */
+    addDetails(label, content) {
+        const element = this.wrap('details', this.wrap('summary', label) + content);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML image tag to the summary buffer
+     *
+     * @param {string} src path to the image you to embed
+     * @param {string} alt text description of the image
+     * @param {SummaryImageOptions} options (optional) addition image attributes
+     *
+     * @returns {Summary} summary instance
+     */
+    addImage(src, alt, options) {
+        const { width, height } = options || {};
+        const attrs = Object.assign(Object.assign({}, (width && { width })), (height && { height }));
+        const element = this.wrap('img', null, Object.assign({ src, alt }, attrs));
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML section heading element
+     *
+     * @param {string} text heading text
+     * @param {number | string} [level=1] (optional) the heading level, default: 1
+     *
+     * @returns {Summary} summary instance
+     */
+    addHeading(text, level) {
+        const tag = `h${level}`;
+        const allowedTag = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)
+            ? tag
+            : 'h1';
+        const element = this.wrap(allowedTag, text);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML thematic break (<hr>) to the summary buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addSeparator() {
+        const element = this.wrap('hr', null);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML line break (<br>) to the summary buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addBreak() {
+        const element = this.wrap('br', null);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML blockquote to the summary buffer
+     *
+     * @param {string} text quote text
+     * @param {string} cite (optional) citation url
+     *
+     * @returns {Summary} summary instance
+     */
+    addQuote(text, cite) {
+        const attrs = Object.assign({}, (cite && { cite }));
+        const element = this.wrap('blockquote', text, attrs);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML anchor tag to the summary buffer
+     *
+     * @param {string} text link text/content
+     * @param {string} href hyperlink
+     *
+     * @returns {Summary} summary instance
+     */
+    addLink(text, href) {
+        const element = this.wrap('a', text, { href });
+        return this.addRaw(element).addEOL();
+    }
+}
+const _summary = new Summary();
+const summary = _summary;
 
 (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -28412,6 +28677,41 @@ function getInput(name, options) {
     return val.trim();
 }
 /**
+ * Gets the values of an multiline input.  Each value is also trimmed.
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   string[]
+ *
+ */
+function getMultilineInput(name, options) {
+    const inputs = getInput(name)
+        .split('\n')
+        .filter(x => x !== '');
+    return inputs.map(input => input.trim());
+}
+/**
+ * Gets the input value of the boolean type in the YAML 1.2 "core schema" specification.
+ * Support boolean input list: `true | True | TRUE | false | False | FALSE` .
+ * The return value is also in boolean type.
+ * ref: https://yaml.org/spec/1.2/spec.html#id2804923
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   boolean
+ */
+function getBooleanInput(name, options) {
+    const trueValue = ['true', 'True', 'TRUE'];
+    const falseValue = ['false', 'False', 'FALSE'];
+    const val = getInput(name);
+    if (trueValue.includes(val))
+        return true;
+    if (falseValue.includes(val))
+        return false;
+    throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}\n` +
+        `Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
+}
+/**
  * Sets the value of an output.
  *
  * @param     name     name of the output to set
@@ -28454,11 +28754,43 @@ function error(message, properties = {}) {
     issueCommand('error', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
+ * Adds a warning issue
+ * @param message warning issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
+ */
+function warning(message, properties = {}) {
+    issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
+ * Adds a notice issue
+ * @param message notice issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
+ */
+function notice(message, properties = {}) {
+    issueCommand('notice', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
  * Writes info to log with console.log.
  * @param message info message
  */
 function info(message) {
     process.stdout.write(message + os.EOL);
+}
+/**
+ * Begin an output group.
+ *
+ * Output until the next `groupEnd` will be foldable in this group
+ *
+ * @param name The name of the output group
+ */
+function startGroup(name) {
+    issue('group', name);
+}
+/**
+ * End an output group.
+ */
+function endGroup() {
+    issue('endgroup');
 }
 
 var dist = {};
@@ -37265,31 +37597,258 @@ async function loadConfig(path) {
   return services
 }
 
+/**
+ * Determina si un archivo cambiado cae dentro de una ruta declarada.
+ *
+ * El match es por prefijo CON delimitador. Sin el '/', la ruta
+ * 'services/api' haria match con 'services/api-v2/...', marcando
+ * como afectado un servicio que no cambio.
+ */
+function matchesPath(file, declaredPath) {
+    // Normalizamos quitando './' incial y '/' final, porque un consumidor
+    // puede escribir './services/api/' y esperar que funcione
+    const p = declaredPath.replace(/^\.\//).replace(/\/$/, '');
+    return file === p || file.startsWith(p + '/')
+}
+
+/**
+ * Servicios cuyos paths declarados contienen alguno de los archivos
+ * cambiados. Es el punto de partida del recorrido, sin propagacion.
+ *
+ * @param {string[]} changedFiles
+ * @param {Map<string, {paths: string[], dependsOn: string[]}>} services
+ * @returns {Set<string>}
+ */
+function directlyChanged(changedFiles, services) {
+    const changed = new Set();
+
+    for (const [name, {paths}] of services) {
+        for (const declaredPath of paths) {
+            if (changedFiles.some((f) => matchesPath(f, declaredPath))) {
+                changed.add(name);
+                // Un servicio se marca una sola vez: mas rutas que coincidan
+                // no cambian el resultado
+                break
+            }
+        }
+    }
+    return changed
+}
+
+/**
+ * Invierte las aristas del grafo.
+ *
+ * La configuracion declara 'api depends-on shared'. La pregunta que
+ * respondemos es la inversa: 'shared cambio, a quien afecta'. Sin esta
+ * inversion el algoritmo daria resultados exactamente al reves.
+ *
+ * @returns {Map<string, string[]>} servicio -> quienes dependen de el
+ */
+function buildDependentsMap(services) {
+    const dependents = new Map();
+
+    // Inicializamos TODAS las claves, incluso las de servicios sin
+    // dependientes. Asi el recorrido nunca recibe undefined y no
+    // necesita comprobaciones defensivas en el bucle caliente.
+    for (const name of services.keys()) {
+        dependents.set(name, []);
+    }
+
+    for (const [name, { dependsOn }] of services) {
+        for (const dep of dependsOn) {
+            dependents.get(dep).push(name);
+        }
+    }
+
+    return dependents
+}
+
+/**
+ * Cierre transitivo: todos los servicios alcanzables desde los
+ * directamente cambiados siguiendo las aristas invertidas.
+ *
+ * @returns {{affected: Set<string>, reasons: Map<string, string>}}
+ *   reasons distingue 'directo' de 'transitivo via X', para poder
+ *   explicarle al consumidor POR QUE un servicio quedo en la lista.
+ */
+function computeAffected(directSet, dependentMap) {
+    const affected = new Set(directSet);
+    const reasons = new Map();
+
+    for (const name of directSet) {
+        reasons.set(name, 'directo');
+    }
+
+    // Recorrido en anchura. La cola arranca con los directos; cada nodo
+    // visitado agrega sus dependientes no vistos.
+    const queue = [...directSet];
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+
+        for (const dependent of dependentMap.get(current) ?? []) {
+            // El Set de visitados es lo que hace que un ciclo termine:
+            // un nodo ya marcado no vuelve a la cola.
+            if (affected.has(dependent)) continue
+
+            affected.add(dependent);
+            reasons.set(dependent, `transitivo via ${current}`);
+            queue.push(dependent);
+        }
+    }
+
+    return {affected, reasons}
+}
+
+/**
+ * Detecta ciclos en el grafo declarado.
+ *
+ * No es un error para el algoritmo (el Set de visitados los maneja),
+ * pero casi siempre indica un problema de arquitectura en el monorepo.
+ * Devolvemos los ciclos para poder advertir, no para fallar.
+ */
+function findCycles(services) {
+    const cycles = [];
+    // Estado de cada nodo en el DFS: 'visitando' detecta la arista de
+    // retroceso que define un ciclo: 'listo' evita reexplorar.
+    const state = new Map();
+
+    function visit(name, path) {
+        if(state.get(name) === 'visitando') {
+            // Cortamos el camino desde la primera aparecicion del nodo:
+            // eso es el ciclo,  sin la cola que llevo hasta el.
+            cycles.push([...path.slice(path.indexOf(name)), name]);
+            return
+        }
+        if (state.get(name) === 'listo') return
+
+        state.set(name, 'visitando');
+        for (const dep of services.get(name)?.dependsOn ?? []) {
+            visit(dep, [...path, name]);
+        }
+        state.set(name, 'listo');
+    }
+
+    for (const name of services.keys()){
+        visit(name, []);
+    }
+
+    return cycles
+}
+
+/**
+ * Convierte el input multilinea en un array de rutas.
+ * getMultilineInput ya separa por saltos de linea; filtramos vacios
+ * y espacios porque un heredoc de YAML suele dejar lineas sueltas.
+ */
+function parseChangedFiles() {
+  return getMultilineInput('changed-files')
+    .map((f) => f.trim())
+    .filter((f) => f.length > 0)
+}
+
+async function writeSummary(affected, reasons, services, changedFiles) {
+  const rows = [
+    [
+      { data: 'Servicio', header: true },
+      { data: 'Motivo', header: true }
+    ]
+  ];
+
+  // Orden alfabetico: sin esto el orden depende de la iteracion del Set,
+  // y el resumen cambiaria entre corridas con el mismo resultado.
+  for (const name of [...affected].sort()) {
+    rows.push([name, reasons.get(name) ?? '']);
+  }
+
+  const summary$1 = summary
+    .addHeading('Blast Radius', 3)
+    .addRaw(
+      `${changedFiles.length} archivo(s) cambiado(s) · ` +
+        `${affected.size} de ${services.size} servicio(s) afectado(s)`
+    )
+    .addBreak();
+
+  if (affected.size > 0) {
+    summary$1.addTable(rows);
+  } else {
+    summary$1.addRaw('Ningun servicio afectado.');
+  }
+
+  // .write() es obligatorio y asincrono. Sin el, el buffer se construye
+  // y nunca llega a $GITHUB_STEP_SUMMARY, sin ningun error visible.
+  await summary$1.write();
+}
+
 async function run() {
   try {
     const configPath = getInput('config-path');
+    const includeDependents = getBooleanInput('include-dependents');
+    const changedFiles = parseChangedFiles();
 
-    info(`Cargando configuracion desde ${configPath}`);
+    // startGroup/endGroup colapsa el bloque en la UI. Util cuando el
+    // detalle es largo y solo interesa al depurar.
+    startGroup(`Archivos cambiados (${changedFiles.length})`);
+    for (const f of changedFiles) info(f);
+    endGroup();
+
     const services = await loadConfig(configPath);
+    info(`Servicios declarados: ${services.size}`);
 
-    info(`SERVICIOS ENCONTRADOS: ${services.size}`);
-    for (const [name, { paths, dependsOn }] of services) {
-      // core.debug solo aparece si ACTIONS_STEP_DEBUG esta activo.
-      // Detalle util para diagnosticar, ruido en una corrida normal.
-      debug(
-        `  ${name}: paths=[${paths.join(', ')}] depends-on=[${dependsOn.join(', ')}]`
-      );
+    // Advertencia, no error: el algoritmo tolera ciclos, pero el
+    // consumidor casi seguro no los quiere en su arquitectura.
+    for (const cycle of findCycles(services)) {
+      warning(`Ciclo de dependencias: ${cycle.join(' -> ')}`, {
+        title: 'Ciclo detectado',
+        file: configPath
+      });
     }
 
-    setOutput('services', JSON.stringify([...services.keys()]));
+    const direct = directlyChanged(changedFiles, services);
+    info(`Directamente cambiados: ${[...direct].sort().join(', ') || '(ninguno)'}`);
+
+    let affected, reasons;
+    if (includeDependents) {
+      const dependentsMap = buildDependentsMap(services)
+      ;({ affected, reasons } = computeAffected(direct, dependentsMap));
+    } else {
+      // Sin propagacion: util para depurar por que un servicio aparece
+      // en la lista. Comparar ambos modos aisla si fue directo o transitivo.
+      affected = direct;
+      reasons = new Map([...direct].map((n) => [n, 'directo']));
+    }
+
+    const sorted = [...affected].sort();
+
+    // Formato listo para `strategy.matrix`. La forma con 'include'
+    // permite agregar campos por servicio despues sin romper consumidores.
+    const matrix = {
+      include: sorted.map((name) => ({
+        service: name,
+        path: services.get(name).paths[0]
+      }))
+    };
+
+    setOutput('matrix', JSON.stringify(matrix));
+    setOutput('services', JSON.stringify(sorted));
+    // Como string, no boolean: los outputs siempre son strings y
+    // devolver un boolean lo convertiria implicitamente.
+    setOutput('any-changed', String(sorted.length > 0));
+
+    await writeSummary(affected, reasons, services, changedFiles);
+
+    if (sorted.length === 0) {
+      // notice, no warning: no encontrar nada afectado es un resultado
+      // legitimo, no una anomalia.
+      notice('Ningun servicio afectado por estos cambios');
+    } else {
+      info(`Afectados: ${sorted.join(', ')}`);
+    }
   } catch (err) {
     if (err instanceof ConfigError) {
-      // Error del consumidor: mensaje limpio, sin stack trace.
       setFailed(err.message);
       return
     }
-    // Fallo inesperado: incluimos el stack, porque aqui el destinatario
-    // real del mensaje somos nosotros, no el consumidor.
     setFailed(`Error inesperado: ${err.message}`);
     debug(err.stack ?? '');
   }

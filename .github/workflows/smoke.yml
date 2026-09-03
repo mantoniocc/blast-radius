@@ -1,32 +1,58 @@
 name: smoke
 
 on:
-    push:
-        paths-ignore:
-            - '**.md'
-            - 'docs/**'
-    workflow_dispatch:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
 
-permissions: 
-    contents: read
+permissions:
+  contents: read
 
 jobs:
-    smoke:
-        runs-on: ubuntu-24.04
-        steps:
-            # Necesario: la action lee el archivo de configuracion del workspace.
-            - uses: actions/checkout@v7
+  smoke:
+    runs-on: ubuntu-24.04
+    strategy:
+      # fail-fast: false para ver TODOS los casos que fallan, no solo
+      # el primero. En una matriz de casos de prueba es lo que quieres.
+      fail-fast: false
+      matrix:
+        include:
+          - name: cambio en libreria compartida
+            files: 'libs/shared/utils.js'
+            esperado: '["api","shared","worker"]'
+          - name: cambio en servicio aislado
+            files: 'services/notifier/index.js'
+            esperado: '["notifier"]'
+          - name: cambio fuera de todo servicio
+            files: 'README.md'
+            esperado: '[]'
+          - name: falso positivo de prefijo
+            files: 'services/api-v2/index.js'
+            esperado: '[]'
 
-            - uses: $/
-              id: radius
-            
-            - shell: bash
-              env:
-                SERVICES: ${{steps.radius.outputs.services}}
-              run: |
-                set -euo pipefail
-                echo "services = $SERVICES"
-                # Verificacion real, no solo un echo: si el output no es un
-                # array JSON valido con 4 elementos, el step falla.
-                echo "$SERVICES" | jq -e 'length == 4' > /dev/null
-                echo "OK: 4 servicios detectados"
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: $/
+        id: radius
+        with:
+          changed-files: ${{ matrix.files }}
+
+      - shell: bash
+        env:
+          OBTENIDO: ${{ steps.radius.outputs.services }}
+          ESPERADO: ${{ matrix.esperado }}
+        run: |
+          set -euo pipefail
+          echo "obtenido = $OBTENIDO"
+          echo "esperado = $ESPERADO"
+          # Comparacion semantica con jq, no textual: tolera diferencias
+          # de espaciado en el JSON.
+          if ! jq -e --argjson a "$OBTENIDO" --argjson b "$ESPERADO" -n '$a == $b' > /dev/null; then
+            echo "::error title=Resultado inesperado::obtenido=$OBTENIDO esperado=$ESPERADO"
+            exit 1
+          fi
+          echo "OK"

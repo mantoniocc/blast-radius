@@ -2,24 +2,36 @@ name: Blast Radius
 description: Calcula que servicios de un monorepo se ven afectados por un cambio, incluyendo dependencias transitivas
 author: mantoniocc
 
-# branding solo aplica al listing de Marketplace (fase 8).
-# Los iconos salen del set de Feather; los colores son un enum cerrado.
 branding:
   icon: git-merge
   color: orange
 
 inputs:
   config-path:
-    description: Ruta al archiv YAML que declara los servicios y sus dependencias
+    description: Ruta al archivo YAML que declara los servicios y sus dependencias
     required: false
     default: .github/blast-radius.yml
 
+  changed-files:
+    description: |
+      Lista de archivos cambiados, uno por linea. Si se omite, la action
+      los obtiene de la API de GitHub (disponible desde v1.1.0).
+    required: false
+    default: ''
+
+  include-dependents:
+    description: Propagar el impacto a los servicios que dependen de los que cambiaron
+    required: false
+    default: 'true'
+
 outputs:
+  matrix:
+    description: 'JSON para strategy.matrix: {"include":[{"service":"api","path":"services/api"}]}'
   services:
-    description: JSON array con los nombres de todos los servicios declarados
-  
+    description: JSON array con los nombres de los servicios afectados
+  any-changed:
+    description: "'true' si al menos un servicio resulto afectado"
+
 runs:
   using: node24
-  # Ruta al BUNDLE, no al fuente. El runner ejecuta lo que este
-  # commiteado en este archivo, sin buildear nada.
   main: dist/index.js
